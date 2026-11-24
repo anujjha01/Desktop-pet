@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+**/__pycache__/
+models/
+kitty.log
+*.pyc
+preview.png
