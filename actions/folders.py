@@ -2,6 +2,7 @@
 
 import os
 import re
+import logging
 from pathlib import Path
 
 
@@ -12,19 +13,15 @@ def _key(text):
 def _roots():
     home = Path.home()
     one_drive = Path(os.environ.get("OneDrive", home / "OneDrive"))
-    names = ("Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos")
-    roots = []
-    for name in names:
-        roots.extend((one_drive / name, home / name))
-    roots.extend((one_drive, home))
-    seen = set()
-    for root in roots:
+    # Search the synced profile first, then the rest of the user profile.
+    # Searching each common folder separately caused the same files to be
+    # scanned repeatedly and could hit the limit before reaching nested folders.
+    for root in (one_drive, home):
         try:
             resolved = root.resolve()
         except OSError:
             continue
-        if resolved.is_dir() and resolved not in seen:
-            seen.add(resolved)
+        if resolved.is_dir():
             yield resolved
 
 
@@ -67,8 +64,8 @@ def find_folder(name):
     target = _key(name)
     exact = []
     partial = []
-    visited = 0
     for root in _roots():
+        visited = 0
         try:
             base_depth = len(root.parts)
             for current, dirs, _files in os.walk(root, onerror=lambda _error: None):
@@ -78,8 +75,13 @@ def find_folder(name):
                 dirs[:] = [
                     directory for directory in dirs
                     if not directory.startswith(".")
-                    and directory.lower() not in {"appdata", "node_modules", ".git", ".venv"}
-                    and depth < 5
+                    and directory.lower() not in {
+                        "appdata", "node_modules", ".git", ".venv",
+                        "windows", "program files", "program files (x86)",
+                        "programdata", "$recycle.bin", "system volume information",
+                    }
+                    and not (root == Path.home().resolve() and directory.lower() == "onedrive")
+                    and depth < 12
                 ]
                 for directory in dirs:
                     key = _key(directory)
@@ -88,23 +90,28 @@ def find_folder(name):
                         exact.append(found)
                     elif len(target) >= 4 and (key.startswith(target) or target in key):
                         partial.append(found)
-                if len(exact) >= 2:
+                if exact:
                     break
-                if visited >= 4000:
+                if visited >= 12000:
                     break
         except OSError:
             continue
-        if len(exact) >= 2 or visited >= 4000:
+        if exact:
             break
-    choices = exact or (partial if len(partial) == 1 else [])
+    partial.sort(
+        key=lambda path: (
+            not _key(path.name).startswith(target),
+            abs(len(_key(path.name)) - len(target)),
+        )
+    )
+    choices = exact or partial
     if choices:
         return str(choices[0]), choices[0].name
-    if len(partial) > 1:
-        raise LookupError(f"I found several folders matching {name}. Say the full folder path or a more specific name.")
-    raise LookupError(f"I couldn't find a folder named {name} in your Desktop, OneDrive, Documents, or Downloads.")
+    raise LookupError(f"I couldn't find a folder named {name} in your OneDrive or user folder.")
 
 
 def open_folder(name):
     path, label = find_folder(name)
     os.startfile(path)
+    logging.getLogger("kitty").info("opened folder: %s", path)
     return label

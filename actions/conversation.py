@@ -18,6 +18,8 @@ def reply(phrase: str) -> str:
         return random.choice(("Hi! It's lovely to hear from you.", "Hello! What are you up to?", "Hey there! I'm happy to hang out."))
     if phrase in {"how are you", "how are you doing", "how's it going", "how is it going", "how's going", "how do you feel"}:
         return random.choice(("I'm doing great, thanks for asking! How are you?", "Pretty good! I've been enjoying my little desktop strolls.", "I'm happy to be here with you. How's your day going?"))
+    if phrase in {"what's up", "what is up", "what's happening"}:
+        return random.choice(("Not much, just keeping you company. What's up with you?", "I'm here and ready to help. What are you working on?"))
     if phrase in {"nothing much", "not much", "nothing", "not a lot", "same old", "same as usual"}:
         return random.choice(("Fair enough. Want to hear a joke, or should I help with something?", "A quiet day can be nice. I'm here if you want to chat or need a hand.", "Got it. What would you like to do next?"))
     if phrase in {"good", "i am good", "i'm good", "fine", "i am fine", "i'm fine", "great", "pretty good", "not bad", "doing well"}:

@@ -12,7 +12,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python.exe main.py
 ```
 
-Or double-click `run.bat`. The first launch downloads the small English Vosk model (about 40 MB) into `models/`.
+Or double-click `run.bat`. The first launch downloads Vosk's larger English model (about 128 MB) into `models/` for better recognition. If that download fails, Kitty uses the compact model instead.
 
 Python 3.12 is the one to use. The voice library does not ship a build for newer Pythons yet.
 

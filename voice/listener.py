@@ -11,17 +11,19 @@ from pathlib import Path
 import sounddevice as sd
 from vosk import KaldiRecognizer, Model
 
-from voice.commands import has_wake
+from voice.commands import has_wake, parse
 
 log = logging.getLogger("kitty")
 
-MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
-MODEL_NAME = "vosk-model-small-en-us-0.15"
+MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-en-us-0.22-lgraph.zip"
+MODEL_NAME = "vosk-model-en-us-0.22-lgraph"
+FALLBACK_MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+FALLBACK_MODEL_NAME = "vosk-model-small-en-us-0.15"
 SAMPLE_RATE = 16000
 
 
-def model_dir(root: Path) -> Path:
-    return root / "models" / MODEL_NAME
+def model_dir(root: Path, name=MODEL_NAME) -> Path:
+    return root / "models" / name
 
 
 def model_ready(path: Path) -> bool:
@@ -29,12 +31,28 @@ def model_ready(path: Path) -> bool:
 
 
 def ensure_model(root: Path, on_progress) -> Path:
-    dest = model_dir(root)
+    dest = model_dir(root, MODEL_NAME)
+    if model_ready(dest):
+        return dest
+
+    try:
+        return _download_model(root, MODEL_NAME, MODEL_URL, on_progress)
+    except Exception:
+        log.exception("enhanced voice model download failed")
+        fallback = model_dir(root, FALLBACK_MODEL_NAME)
+        if model_ready(fallback):
+            on_progress("Using compact voice model")
+            return fallback
+        return _download_model(root, FALLBACK_MODEL_NAME, FALLBACK_MODEL_URL, on_progress)
+
+
+def _download_model(root: Path, name: str, url: str, on_progress) -> Path:
+    dest = model_dir(root, name)
     if model_ready(dest):
         return dest
     folder = root / "models"
     folder.mkdir(parents=True, exist_ok=True)
-    zip_path = folder / "vosk-model.zip"
+    zip_path = folder / f"{name}.zip"
     on_progress("Downloading voice...")
 
     last = ""
@@ -49,7 +67,7 @@ def ensure_model(root: Path, on_progress) -> Path:
             last = text
             on_progress(text)
 
-    request = urllib.request.Request(MODEL_URL, headers={"User-Agent": "kitty-desktop-pet"})
+    request = urllib.request.Request(url, headers={"User-Agent": "kitty-desktop-pet"})
     try:
         with urllib.request.urlopen(request, timeout=60) as response, zip_path.open("wb") as handle:
             total = int(response.headers.get("Content-Length") or 0)
@@ -106,8 +124,23 @@ class Listener:
 
     def _run(self):
         try:
-            model = Model(str(self.model_path))
-            recognizer = KaldiRecognizer(model, SAMPLE_RATE)
+            log.info("loading speech model: %s", self.model_path.name)
+            try:
+                model = Model(str(self.model_path))
+            except Exception:
+                fallback = self.model_path.parent / FALLBACK_MODEL_NAME
+                if self.model_path.name == MODEL_NAME and model_ready(fallback):
+                    log.exception("enhanced model could not load; using compact model")
+                    model = Model(str(fallback))
+                else:
+                    raise
+
+            def new_recognizer():
+                recognizer = KaldiRecognizer(model, SAMPLE_RATE)
+                recognizer.SetMaxAlternatives(5)
+                return recognizer
+
+            recognizer = new_recognizer()
             log.info("microphone input device: %s", sd.query_devices(kind="input").get("name", "default"))
             self.events.put(("ready", ""))
             last_partial = ""
@@ -143,15 +176,23 @@ class Listener:
                     if self._paused.is_set():
                         continue
                     if self._reset.is_set():
-                        recognizer = KaldiRecognizer(model, SAMPLE_RATE)
+                        recognizer = new_recognizer()
                         self._reset.clear()
                         last_partial = ""
                         continue
                     if recognizer.AcceptWaveform(pcm):
-                        text = json.loads(recognizer.Result()).get("text", "").strip()
+                        result = json.loads(recognizer.Result())
+                        alternatives = result.get("alternatives", [])
+                        choices = [item.get("text", "").strip() for item in alternatives]
+                        text = result.get("text", "").strip() or (choices[0] if choices else "")
+                        command_choice = next((choice for choice in choices if choice and parse(choice)), None)
+                        if command_choice:
+                            text = command_choice
                         last_partial = ""
                         if text:
-                            log.info("heard: %s", text)
+                            log.info("heard: %s%s", text, " (command alternative)" if command_choice and command_choice != choices[0] else "")
+                            if choices and not command_choice:
+                                log.info("other voice guesses: %s", choices[1:5])
                             self.events.put(("final", text))
                     else:
                         partial = json.loads(recognizer.PartialResult()).get("partial", "").strip()

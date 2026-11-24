@@ -13,6 +13,7 @@ POLITE_RE = re.compile(r"^(?:please|can you|could you|would you|will you)\s+")
 RULES = (
     ("chat", re.compile(r"^(?:hi|hello|hey|hiya|good morning|good afternoon|good evening)(?: there)?$")),
     ("chat", re.compile(r"^(?:how are you|how are you doing|how's it going|how is it going|how's going|are you okay|how do you feel)$")),
+    ("chat", re.compile(r"^(?:what's up|what is up|what's happening)$")),
     ("chat", re.compile(r"^(?:thanks|thank you|thanks a lot|thank you so much|you are welcome)$")),
     ("chat", re.compile(r"^(?:what is your name|what's your name|who are you|are you a cat)$")),
     ("chat", re.compile(r"^(?:what can you do|tell me about yourself|i love you)$")),
@@ -140,10 +141,15 @@ def parse(text):
         return None
     # Common Vosk substitutions observed in kitty.log for command phrases.
     phrase = re.sub(r"\bopn\b", "open", phrase)
-    phrase = re.sub(r"^(?:head|he|hey)\s+(?=open\b)", "", phrase)
-    phrase = re.sub(r"\b(?:a|the|he|be|we|head)\s+(?=open\b)", "", phrase)
+    phrase = re.sub(
+        r"^(?:(?:you'd|you|he'd|he|i|it|we|they|head|and|uh|a|the|be|been|did)\s+){1,3}(?=open\b)",
+        "",
+        phrase,
+    )
+    phrase = re.sub(r"\b(?:fuller|fooler)\b", "folder", phrase)
     phrase = re.sub(r"\b(?:you do|you tube|you duke|you too|you to)\b", "youtube", phrase)
     phrase = re.sub(r"\bvs good\b", "youtube", phrase)
+    phrase = re.sub(r"\bcar cursor\b", "calculator", phrase)
     phrase = re.sub(r"\bnew deal\b", "edge", phrase)
     phrase = re.sub(r"\byour deal\b", "edge", phrase)
     phrase = re.sub(r"\bthe crowd\b", "chrome", phrase)
@@ -151,6 +157,10 @@ def parse(text):
     for name, pattern in RULES:
         match = pattern.match(phrase)
         if not match:
+            continue
+        if name == "calculate" and not re.search(
+            r"\d|\b(?:plus|minus|times|divided|over|modulo|mod)\b", match.group(1)
+        ):
             continue
         arg = match.group(1).strip() if match.groups() else ""
         if name == "chat":
